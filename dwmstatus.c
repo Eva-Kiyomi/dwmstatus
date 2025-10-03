@@ -1,7 +1,4 @@
-/*
- * Copy me if you can.
- * by 20h
- */
+/* Nyam Nyam :) */
 
 #define _BSD_SOURCE
 #include <unistd.h>
@@ -19,15 +16,11 @@
 
 #include <X11/Xlib.h>
 
-char *tzargentina = "America/Buenos_Aires";
 char *tzutc = "UTC";
-char *tzberlin = "Europe/Berlin";
-char *timeZoneKyiv = "Europe/Kyiv";
 
 static Display *dpy;
 
-char *
-smprintf(char *fmt, ...)
+char *smprintf(char *fmt, ...)
 {
 	va_list fmtargs;
 	char *ret;
@@ -50,14 +43,12 @@ smprintf(char *fmt, ...)
 	return ret;
 }
 
-void
-settz(char *tzname)
+void settz(const char *tzname)
 {
 	setenv("TZ", tzname, 1);
 }
 
-char *
-mktimes(char *fmt, char *tzname)
+char *mktimes(const char *fmt, const char *tzname)
 {
 	char buf[129];
 	time_t tim;
@@ -77,15 +68,13 @@ mktimes(char *fmt, char *tzname)
 	return smprintf("%s", buf);
 }
 
-void
-setstatus(char *str)
+void setstatus(char *str)
 {
 	XStoreName(dpy, DefaultRootWindow(dpy), str);
 	XSync(dpy, False);
 }
 
-char *
-loadavg(void)
+char *loadavg(void)
 {
 	double avgs[3];
 
@@ -95,8 +84,7 @@ loadavg(void)
 	return smprintf("%.2f %.2f %.2f", avgs[0], avgs[1], avgs[2]);
 }
 
-char *
-readfile(char *base, char *file)
+char *readfile(const char *base, char *file)
 {
 	char *path, line[513];
 	FILE *fd;
@@ -118,8 +106,7 @@ readfile(char *base, char *file)
 	return smprintf("%s", line);
 }
 
-char *
-getbattery(char *base)
+char *getbattery(const char *base)
 {
 	char *co;
 
@@ -148,8 +135,7 @@ getbattery(char *base)
 
 }
 
-char *
-gettemperature(char *base, char *sensor)
+char *gettemperature(const char *base, char *sensor)
 {
 	char *co;
 
@@ -159,8 +145,7 @@ gettemperature(char *base, char *sensor)
 	return smprintf("%02.0f°C", atof(co) / 1000);
 }
 
-char *
-execscript(char *cmd)
+char *execscript(const char *cmd)
 {
 	FILE *fp;
 	char retval[1025], *rv;
@@ -196,51 +181,79 @@ char* get_battery_dishcharge_time()
     return result;
 }
 
-int
-main(void)
+/********** CONFIGURATION **********/
+const char *BATTERY_PATH        = "/sys/class/power_supply/BAT1";
+const char *THERMAL_ZONE_PATH   = "/sys/devices/virtual/thermal/thermal_zone6";
+const char *VOLUME_CMD          = "pactl get-sink-volume @DEFAULT_SINK@ | grep -Po '\\d+(?=%)' | head -n 1";
+const char *KB_LAYOUT_CMD       = "xkblayout-state print '%n'";
+const char *TIME_FORMAT         = "%A %d.%m.%Y %T";
+const char *TIME_ZONE           = "Europe/Kyiv";
+/**********************************/
+
+/********** Functions block for getting all statuses **********/
+char *get_battery_status() {
+    char *bat = getbattery(BATTERY_PATH);
+    char *remain = get_battery_dishcharge_time();
+    char *status = smprintf("󱊣%s%%%s", bat, remain ? remain : "");
+    free(bat);
+    free(remain);
+    return status;
+}
+
+char *get_volume_status() {
+    char *vol = execscript(VOLUME_CMD);
+    char *status = smprintf(" %s%%", vol);
+    free(vol);
+    return status;
+}
+
+char *get_temp_status() {
+    char *t0 = gettemperature(THERMAL_ZONE_PATH, "temp");
+    char *status = smprintf(" %s", t0);
+    free(t0);
+    return status;
+}
+
+char *get_kb_status() {
+    char *kb = execscript(KB_LAYOUT_CMD);
+    char *status = smprintf("󰌌 %s", kb);
+    free(kb);
+    return status;
+}
+
+char *get_time_status() {
+    return mktimes(TIME_FORMAT, TIME_ZONE);
+}
+
+
+int main(void)
 {
-	char *myStatus;
-
-	char *avgs;
-	char *bat;
-	char *remain_battery;
-	char *t0;
-	char *kbmap;
-	char *soundVolume;
-	char *kyivTime;
-
-	if (!(dpy = XOpenDisplay(NULL))) {
+	if (!(dpy = XOpenDisplay(NULL))) 
+    {
 		fprintf(stderr, "dwmstatus: cannot open display.\n");
 		return 1;
 	}
 
-	for (;;sleep(1)) {
-		avgs = loadavg();
-		bat = getbattery("/sys/class/power_supply/BAT1");
-        
-        remain_battery = get_battery_dishcharge_time();
+	for (;;sleep(1)) 
+    {
+	    char *batStatus = get_battery_status();
+        char *volStatus = get_volume_status();
+        char *tempStatus = get_temp_status();
+        char *kbStatus = get_kb_status();
+        char *timeStatus = get_time_status();
 
-		kbmap = execscript("xkblayout-state print '%n' ");
-		soundVolume = execscript("pactl get-sink-volume @DEFAULT_SINK@ | grep -Po '\\d+(?=%)' | head -n 1");
-		t0 = gettemperature("/sys/devices/virtual/thermal/thermal_zone6", "temp");
-		kyivTime = mktimes("%A %d.%m.%Y  %T", timeZoneKyiv);
-		myStatus = smprintf("  %s  󱊣%s%%%s   %s%%   󰌌 %s | %s", t0, bat, remain_battery ? remain_battery : "", soundVolume, kbmap, kyivTime);
-		
-		setstatus(myStatus);
+        char *myStatus = smprintf("%s | %s | %s | %s | %s", tempStatus, batStatus, volStatus, kbStatus, timeStatus);
+        setstatus(myStatus);	
 
-		free(kbmap);
-		free(t0);
-		free(soundVolume);
-		free(avgs);
-		free(bat);
-        free(remain_battery);
-		
-		free(myStatus);
-		free(kyivTime);
-	}
+	    free(batStatus);
+        free(volStatus);
+        free(tempStatus);
+        free(kbStatus);
+        free(timeStatus);
+        free(myStatus);
+    }
 
 	XCloseDisplay(dpy);
 
 	return 0;
 }
-
